@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import os
 import random
+from multiprocessing import Process, Queue
 from random import choice
 import binascii
 from scapy.all import *
@@ -169,45 +170,36 @@ def fuzz(self):
     fuzzpkt = TCP(sport=sport, dport=dport, flags='PA',
                   seq=self[0][1][1].ack,
                   ack=self[0][1][1].seq + len(self[0][1][1].load))
-    fuzz_ack = sr1(ip/fuzzpkt/fuzz_pkt)
+    # fuzz_ack = sr(ip/fuzzpkt/fuzz_pkt, multi=True, timeout=5)
+    fuzz_ack = sr1(ip / fuzzpkt / fuzz_pkt)
     sniffer = sniff(filter="tcp and host 172.18.15.108", count=2, timeout=5)
     return sniffer, fuzz_pkt, fuzz_ack
 
 
-def fuzz_analysis(self):
-    if len(fuzz_result[0]) == 0:
-        fuzzlog.write("%s\n" % binascii.hexlify(fuzz_result[2]))
-        # fuzz_result_cycle = fuzz(fuzz_result[2])
-
+def fuzz_analysis(data):
+    if len(data[0]) == 0:
+        fuzzlog.write("%s\n" % binascii.hexlify(data[1]))
     else:
-        errorlog.write("%s \n" % hex(fuzz_result[0][0]))
-        errorlog.write("%s \n" % hex(fuzz_result[0][1]))
-        for i in range(len(self[0])):
-            tcp_flag = self[0][i][2].flags
-            if tcp_flag == 24L:
-                tcp_load = self[0][1][2].load
-                if tcp_load[:1] == '\x03\x00':
-                    error_code = tcp_load[-2:]
-                    errorlog.write("%s \n" % binascii.hexlify(error_code))
-
-    # rst = TCP(sport=sport, dport=dport, flags='R', seq=self[2].ack)
-    # send(ip / rst)
+        errorlog.write("%s \n" % binascii.hexlify((data[0][1][2].load)[-2:]))
+    rst = TCP(sport=sport, dport=dport, flags='R', seq=data[2].ack)
+    send(ip / rst)
 
 
 # VARIABLES
 src = sys.argv[1]
 dst = sys.argv[2]
 dport = int(sys.argv[3])
-sport = random.randint(1024, 65535)
-ip = IP(src=src, dst=dst)
 
 
 if __name__=='__main__':
     fuzzlog = open('fuzzlog.log', 'w+')
-    errorlog = open('error_log', 'w')
-    syn_ack = tcp_connect()
-    comm_ack = hello_plc(syn_ack)
-    fuzz_result = fuzz(comm_ack)
-    fuzz_analysis(fuzz_result)
-    rst = TCP(sport=sport, dport=dport, flags='R', seq=fuzz_result[2].ack)
-    send(ip / rst)
+    errorlog = open('error_code.log', 'w+')
+    while True:
+        sport = random.randint(1024, 65535)
+        ip = IP(src=src, dst=dst)
+        syn_ack = tcp_connect()
+        comm_ack = hello_plc(syn_ack)
+        fuzz_result = fuzz(comm_ack)
+        fuzz_analysis(fuzz_result)
+        rst = TCP(sport=sport, dport=dport, flags='R', seq=fuzz_result[2].ack)
+        send(ip / rst)
