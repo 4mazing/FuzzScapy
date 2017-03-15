@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 import os
 import random
-from multiprocessing import Process, Queue
 from random import choice
 import binascii
 from scapy.all import *
@@ -128,7 +127,7 @@ def tcp_connect():
     return SYNACK
 
 
-def fuzz_sniff(q):
+def fuzz_sniff():
     sniffer = sniff(filter="tcp and host 172.18.15.108", count=3)
     for i in range(len(sniffer)):
         tcp_flag = sniffer[i][2].flags
@@ -164,33 +163,35 @@ def hello_plc(self):
     return COMMACK
 
 
-def fuzz():
+def fuzz(self):
     fuzz_pkt = s7_fuzz_packet()
     fuzz_pkt = str2byte(fuzz_pkt)
     fuzzpkt = TCP(sport=sport, dport=dport, flags='PA',
-                  seq=result[0][1][1].ack,
-                  ack=result[0][1][1].seq + len(result[0][1][1].load))
+                  seq=self[0][1][1].ack,
+                  ack=self[0][1][1].seq + len(self[0][1][1].load))
     fuzz_ack = sr1(ip/fuzzpkt/fuzz_pkt)
-    sniffer = sniff(filter="tcp and host 172.18.15.108", count=2, timeout=5, prn=lambda x: x.sprintf("%TCP.flags"))
-    return sniffer, fuzz_pkt
+    sniffer = sniff(filter="tcp and host 172.18.15.108", count=2, timeout=5)
+    return sniffer, fuzz_pkt, fuzz_ack
 
 
 def fuzz_analysis(self):
-    if len(self.sniffer) == 0:
-        fuzzlog.write("%s\n" % self.fuzz_pkt)
-        fuzz()
+    if len(fuzz_result[0]) == 0:
+        fuzzlog.write("%s\n" % binascii.hexlify(fuzz_result[2]))
+        # fuzz_result_cycle = fuzz(fuzz_result[2])
+
     else:
-        for i in range(len(self.sniffer)):
-            tcp_flag = self.sniffer[i][2].flags
+        errorlog.write("%s \n" % hex(fuzz_result[0][0]))
+        errorlog.write("%s \n" % hex(fuzz_result[0][1]))
+        for i in range(len(self[0])):
+            tcp_flag = self[0][i][2].flags
             if tcp_flag == 24L:
-                tcp_load = self.sniffer[1][2].load
+                tcp_load = self[0][1][2].load
                 if tcp_load[:1] == '\x03\x00':
                     error_code = tcp_load[-2:]
-                    print error_code
+                    errorlog.write("%s \n" % binascii.hexlify(error_code))
 
-
-    rst = TCP(sport=sport, dport=dport, flags='R', seq=fuzz_ack.ack)
-    send(ip / rst)
+    # rst = TCP(sport=sport, dport=dport, flags='R', seq=self[2].ack)
+    # send(ip / rst)
 
 
 # VARIABLES
@@ -203,7 +204,10 @@ ip = IP(src=src, dst=dst)
 
 if __name__=='__main__':
     fuzzlog = open('fuzzlog.log', 'w+')
+    errorlog = open('error_log', 'w')
     syn_ack = tcp_connect()
-    result = hello_plc(syn_ack)
-    fuzz_result = fuzz()
+    comm_ack = hello_plc(syn_ack)
+    fuzz_result = fuzz(comm_ack)
     fuzz_analysis(fuzz_result)
+    rst = TCP(sport=sport, dport=dport, flags='R', seq=fuzz_result[2].ack)
+    send(ip / rst)
